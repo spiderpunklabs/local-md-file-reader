@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markdown Reader</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <input
+        id="file-input"
+        type="file"
+        accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain"
+        hidden
+      />
+      <input
+        id="folder-input"
+        type="file"
+        accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain"
+        webkitdirectory
+        multiple
+        hidden
+      />
+
+      <aside class="rail" aria-label="Document navigation">
+        <div class="rail-header">
+          <p class="eyebrow">Reading Session</p>
+          <h2>Navigator</h2>
+          <p class="rail-copy">
+            Recent files stay here. Same-folder browsing appears when the browser
+            exposes folder access.
+          </p>
+        </div>
+
+        <div class="rail-actions">
+          <button type="button" data-action="open-file">Open File</button>
+          <button type="button" class="ghost" data-action="open-folder">Open Folder</button>
+          <button type="button" class="ghost" data-action="reset">Reset</button>
+        </div>
+
+        <section class="rail-section">
+          <div class="rail-section-header">
+            <h3>History</h3>
+            <div class="rail-section-actions">
+              <span id="history-count" class="rail-count">0</span>
+              <button
+                id="history-section-toggle"
+                type="button"
+                class="ghost compact rail-section-toggle"
+                aria-expanded="true"
+                aria-controls="history-section-body"
+              >
+                Collapse
+              </button>
+            </div>
+          </div>
+          <div id="history-section-body" class="rail-section-body">
+            <p id="history-empty" class="rail-empty">
+              Opened files will appear here.
+            </p>
+            <div id="history-list" class="rail-list"></div>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="rail-section-header">
+            <h3>Same Folder</h3>
+            <div class="rail-section-actions">
+              <span id="directory-label" class="rail-label">Unavailable</span>
+              <button
+                id="directory-section-toggle"
+                type="button"
+                class="ghost compact rail-section-toggle"
+                aria-expanded="true"
+                aria-controls="directory-section-body"
+              >
+                Collapse
+              </button>
+            </div>
+          </div>
+          <div id="directory-section-body" class="rail-section-body">
+            <p id="directory-empty" class="rail-empty">
+              Use Open Folder to browse sibling files. A plain file picker cannot list
+              nearby files by itself.
+            </p>
+            <div id="directory-list" class="rail-list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main-shell">
+        <div class="shell-toolbar">
+          <button
+            id="rail-toggle"
+            type="button"
+            class="icon-button"
+            aria-label="Toggle navigator"
+            aria-expanded="false"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+        </div>
+
+        <div class="page-shell">
+          <section class="intro-shell">
+            <header class="topbar">
+              <div>
+                <p class="eyebrow">Local Browser Tool</p>
+                <h1>Markdown Reader</h1>
+                <p class="subhead">
+                  Open a Markdown file, read it in a dark reader view, and keep a
+                  lightweight local session history beside it.
+                </p>
+              </div>
+              <div class="actions">
+                <button type="button" data-action="open-file">Open Markdown File</button>
+                <button type="button" class="ghost" data-action="open-folder">Open Folder</button>
+                <button type="button" class="ghost" data-action="reset">Reset</button>
+              </div>
+            </header>
+
+            <section id="dropzone" class="dropzone" aria-label="Markdown drop area">
+              <div class="dropzone-copy">
+                <p class="drop-title">Drag and drop a Markdown file here</p>
+                <p class="drop-subtitle">
+                  Drop one file for a quick read or use a folder to unlock sibling
+                  browsing in the left rail.
+                </p>
+              </div>
+              <div class="meta">
+                <span id="drop-file-name">sample.md</span>
+                <span id="drop-doc-stats">0 lines</span>
+              </div>
+            </section>
+          </section>
+
+          <section class="viewer">
+            <div class="panel panel-source">
+              <div class="panel-header">
+                <h2>Source</h2>
+              </div>
+              <textarea
+                id="markdown-input"
+                spellcheck="false"
+                aria-label="Markdown source"
+              ></textarea>
+            </div>
+
+            <div class="panel panel-preview">
+              <div class="panel-header panel-header-preview">
+                <div>
+                  <h2>Preview</h2>
+                  <p id="panel-file-name" class="panel-file-name">sample.md</p>
+                </div>
+                <div class="panel-statuses">
+                  <button id="source-toggle" type="button" class="ghost compact">
+                    Hide Source
+                  </button>
+                  <span id="panel-doc-stats" class="status">0 lines</span>
+                  <span id="render-status" class="status">Rendered locally</span>
+                </div>
+              </div>
+              <article id="preview" class="preview" aria-live="polite"></article>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+  </html>
