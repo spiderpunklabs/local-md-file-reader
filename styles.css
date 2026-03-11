@@ -47,6 +47,7 @@ input {
   display: grid;
   grid-template-columns: 0 minmax(0, 1fr);
   min-height: 100vh;
+  overflow-x: hidden;
   transition: grid-template-columns 240ms ease;
 }
 
@@ -55,6 +56,8 @@ body.has-document.rail-open .app-shell {
 }
 
 .rail {
+  min-width: 0;
+  width: 100%;
   overflow: hidden;
   border-right: 1px solid var(--line);
   background:
@@ -63,7 +66,11 @@ body.has-document.rail-open .app-shell {
   opacity: 0;
   transform: translateX(-20px);
   pointer-events: none;
-  transition: opacity 220ms ease, transform 220ms ease;
+  transition:
+    opacity 220ms ease,
+    transform 220ms ease,
+    padding 220ms ease,
+    border-color 220ms ease;
 }
 
 body.has-document .rail {
@@ -73,6 +80,14 @@ body.has-document .rail {
 
 body.has-document.rail-open .rail {
   pointer-events: auto;
+}
+
+body.has-document:not(.rail-open) .rail {
+  opacity: 0;
+  transform: translateX(-24px);
+  padding-left: 0;
+  padding-right: 0;
+  border-right-color: transparent;
 }
 
 .rail-header {
