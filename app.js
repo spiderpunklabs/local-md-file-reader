@@ -77,7 +77,7 @@ function escapeHtml(value) {
 function parseInline(text) {
   const codeTokens = [];
   const tokenized = text.replace(/`([^`]+)`/g, (_, code) => {
-    const token = `%%CODE_${codeTokens.length}%%`;
+    const token = `@@CODETOKEN${codeTokens.length}@@`;
     codeTokens.push(`<code>${escapeHtml(code)}</code>`);
     return token;
   });
@@ -104,7 +104,7 @@ function parseInline(text) {
   html = html.replace(/(\*|_)(.*?)\1/g, "<em>$2</em>");
   html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
 
-  return html.replace(/%%CODE_(\d+)%%/g, (_, index) => codeTokens[Number(index)]);
+  return html.replace(/@@CODETOKEN(\d+)@@/g, (_, index) => codeTokens[Number(index)]);
 }
 
 function isTableSeparator(line) {
