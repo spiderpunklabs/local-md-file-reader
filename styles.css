@@ -149,6 +149,13 @@ button:hover {
   background: linear-gradient(135deg, #79ddff 0%, #c7f8ff 100%);
 }
 
+button:disabled,
+button:disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
 button.ghost {
   color: var(--ink);
   background: rgba(117, 146, 181, 0.08);
@@ -175,7 +182,9 @@ button.compact {
 .rail-section-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
 
 .rail-section-header h3 {

@@ -35,6 +35,7 @@ const sourcePanel = document.querySelector(".panel-source");
 const historyList = document.querySelector("#history-list");
 const historyEmpty = document.querySelector("#history-empty");
 const historyCount = document.querySelector("#history-count");
+const historyClearButton = document.querySelector("#history-clear");
 const historySectionToggle = document.querySelector("#history-section-toggle");
 const historySectionBody = document.querySelector("#history-section-body");
 const directoryList = document.querySelector("#directory-list");
@@ -393,6 +394,7 @@ function addHistoryEntry(entry) {
 function renderHistory() {
   historyCount.textContent = String(state.history.length);
   historyEmpty.hidden = state.history.length > 0;
+  historyClearButton.disabled = state.history.length === 0;
 
   historyList.innerHTML = state.history
     .map(
@@ -408,6 +410,18 @@ function renderHistory() {
       `
     )
     .join("");
+}
+
+function clearHistory() {
+  if (!state.history.length) {
+    return;
+  }
+
+  state.history = [];
+  state.nextHistoryId = 1;
+  state.currentDocument.historyId = null;
+  renderStatus.textContent = "History cleared";
+  updateSidebar();
 }
 
 function renderDirectory() {
@@ -651,6 +665,10 @@ railToggle.addEventListener("click", () => {
 
 historySectionToggle.addEventListener("click", () => {
   setSectionExpanded("history", !state.sections.history);
+});
+
+historyClearButton.addEventListener("click", () => {
+  clearHistory();
 });
 
 directorySectionToggle.addEventListener("click", () => {
