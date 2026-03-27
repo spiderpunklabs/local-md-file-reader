@@ -74,37 +74,59 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function parseInline(text) {
-  const codeTokens = [];
-  const tokenized = text.replace(/`([^`]+)`/g, (_, code) => {
-    const token = `@@CODETOKEN${codeTokens.length}@@`;
-    codeTokens.push(`<code>${escapeHtml(code)}</code>`);
-    return token;
-  });
-
-  let html = escapeHtml(tokenized);
-
-  html = html.replace(
-    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
-    (_, alt, src, title) =>
-      `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
-        title ? ` title="${escapeHtml(title)}"` : ""
-      } />`
-  );
-
-  html = html.replace(
-    /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
-    (_, label, href, title) =>
-      `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${
-        title ? ` title="${escapeHtml(title)}"` : ""
-      }>${label}</a>`
-  );
+function renderStyledText(text) {
+  let html = escapeHtml(text);
 
   html = html.replace(/(\*\*|__)(.*?)\1/g, "<strong>$2</strong>");
   html = html.replace(/(\*|_)(.*?)\1/g, "<em>$2</em>");
   html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
 
-  return html.replace(/@@CODETOKEN(\d+)@@/g, (_, index) => codeTokens[Number(index)]);
+  return html;
+}
+
+function renderInlineText(text) {
+  const inlinePattern =
+    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
+  let html = "";
+  let lastIndex = 0;
+  let match;
+
+  while ((match = inlinePattern.exec(text)) !== null) {
+    html += renderStyledText(text.slice(lastIndex, match.index));
+
+    if (match[1] !== undefined) {
+      const [, alt, src, title] = match;
+      html += `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
+        title ? ` title="${escapeHtml(title)}"` : ""
+      } />`;
+    } else {
+      const [, , , , label, href, title] = match;
+      html += `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${
+        title ? ` title="${escapeHtml(title)}"` : ""
+      }>${renderStyledText(label)}</a>`;
+    }
+
+    lastIndex = inlinePattern.lastIndex;
+  }
+
+  html += renderStyledText(text.slice(lastIndex));
+  return html;
+}
+
+function parseInline(text) {
+  const codePattern = /`([^`]+)`/g;
+  let html = "";
+  let lastIndex = 0;
+  let match;
+
+  while ((match = codePattern.exec(text)) !== null) {
+    html += renderInlineText(text.slice(lastIndex, match.index));
+    html += `<code>${escapeHtml(match[1])}</code>`;
+    lastIndex = codePattern.lastIndex;
+  }
+
+  html += renderInlineText(text.slice(lastIndex));
+  return html;
 }
 
 function isTableSeparator(line) {
