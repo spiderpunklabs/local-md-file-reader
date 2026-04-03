@@ -3,7 +3,40 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Static `file://` apps only get browser-enforced hardening through meta tags.
+      Response-header controls such as HSTS, COOP/COEP, Permissions-Policy,
+      X-Frame-Options, and CSP `frame-ancestors` are not available here.
+      This CSP therefore focuses on local containment: no network fetches, no
+      plugins/workers/frames/forms, and only local assets. Explicit `file:` allowances
+      are kept because browser handling of same-origin `file://` resources is inconsistent.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'none';
+        base-uri 'none';
+        form-action 'none';
+        object-src 'none';
+        worker-src 'none';
+        child-src 'none';
+        frame-src 'none';
+        connect-src 'none';
+        manifest-src 'none';
+        prefetch-src 'none';
+        script-src 'self' file:;
+        style-src 'self' file:;
+        img-src 'self' file: data: blob:;
+        font-src 'self' file: data:;
+        media-src 'self' file: data: blob:;
+        navigate-to https: file:;
+      "
+    />
+    <!-- Prevent local file paths from leaking as referrers when links are opened. -->
+    <meta name="referrer" content="no-referrer" />
     <title>Markdown Reader</title>
+    <!-- Avoid an extra favicon lookup when opened directly from disk. -->
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
