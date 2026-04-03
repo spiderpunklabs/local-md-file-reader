@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markdown Reader Browser Regression Harness</title>
+    <link rel="stylesheet" href="../styles.css" />
+    <style>
+      body.harness-page {
+        display: grid;
+        gap: 24px;
+        padding: 24px;
+      }
+
+      .harness-shell {
+        position: sticky;
+        top: 16px;
+        z-index: 40;
+        display: grid;
+        gap: 18px;
+        padding: 22px 24px;
+        border: 1px solid var(--line-strong);
+        border-radius: 26px;
+        background:
+          linear-gradient(180deg, rgba(12, 18, 28, 0.96) 0%, rgba(8, 12, 18, 0.98) 100%);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .harness-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 18px;
+        flex-wrap: wrap;
+      }
+
+      .harness-header h1 {
+        margin: 0;
+        font-size: clamp(1.6rem, 2vw, 2.1rem);
+      }
+
+      .harness-copy {
+        max-width: 72ch;
+      }
+
+      .harness-copy p {
+        margin: 10px 0 0;
+        color: var(--ink-soft);
+        line-height: 1.6;
+      }
+
+      .harness-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .harness-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 14px 16px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: rgba(117, 146, 181, 0.08);
+      }
+
+      .harness-summary strong {
+        display: block;
+        margin-bottom: 2px;
+      }
+
+      .harness-summary p {
+        margin: 0;
+        color: var(--ink-muted);
+      }
+
+      .summary-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--ink);
+        border: 1px solid var(--line);
+        background: rgba(117, 146, 181, 0.08);
+      }
+
+      .summary-pill.running {
+        border-color: rgba(255, 184, 108, 0.34);
+        background: rgba(255, 184, 108, 0.12);
+        color: var(--accent-warm);
+      }
+
+      .summary-pill.pass {
+        border-color: rgba(112, 221, 164, 0.32);
+        background: rgba(112, 221, 164, 0.12);
+        color: #98f5bf;
+      }
+
+      .summary-pill.fail {
+        border-color: rgba(255, 126, 126, 0.32);
+        background: rgba(255, 126, 126, 0.14);
+        color: #ff9696;
+      }
+
+      .summary-pill.watchlist {
+        border-color: rgba(255, 184, 108, 0.34);
+        background: rgba(255, 184, 108, 0.12);
+        color: var(--accent-warm);
+      }
+
+      .scenario-list {
+        display: grid;
+        gap: 14px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .scenario-card {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+        border-radius: 22px;
+        border: 1px solid var(--line);
+        background: rgba(10, 16, 24, 0.76);
+      }
+
+      .scenario-topline {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .scenario-card h2 {
+        margin: 0;
+        font-size: 1.02rem;
+      }
+
+      .scenario-kind {
+        margin: 6px 0 0;
+        color: var(--ink-muted);
+        font-size: 0.84rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .scenario-controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .scenario-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        color: var(--ink-soft);
+        background: rgba(117, 146, 181, 0.08);
+        font-size: 0.8rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .scenario-status.pass,
+      .scenario-status.gap-closed {
+        color: #98f5bf;
+        border-color: rgba(112, 221, 164, 0.32);
+        background: rgba(112, 221, 164, 0.12);
+      }
+
+      .scenario-status.fail {
+        color: #ff9696;
+        border-color: rgba(255, 126, 126, 0.32);
+        background: rgba(255, 126, 126, 0.14);
+      }
+
+      .scenario-status.known-gap {
+        color: var(--accent-warm);
+        border-color: rgba(255, 184, 108, 0.34);
+        background: rgba(255, 184, 108, 0.12);
+      }
+
+      .scenario-status.running {
+        color: var(--accent);
+        border-color: rgba(101, 213, 255, 0.32);
+        background: rgba(101, 213, 255, 0.12);
+      }
+
+      .scenario-detail {
+        margin: 0;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: rgba(4, 8, 12, 0.58);
+        color: var(--ink-soft);
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .app-shell {
+        min-height: 0;
+        border: 1px solid rgba(158, 190, 224, 0.18);
+        border-radius: 28px;
+        overflow: hidden;
+      }
+
+      @media (max-width: 920px) {
+        body.harness-page {
+          padding: 16px;
+        }
+
+        .harness-shell {
+          top: 0;
+          border-radius: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body class="harness-page">
+    <header class="harness-shell">
+      <div class="harness-header">
+        <div class="harness-copy">
+          <p class="eyebrow">No-Build Browser Runner</p>
+          <h1>Markdown Reader Regression Harness</h1>
+          <p>
+            This page mirrors the app shell, loads the real <code>../app.js</code>,
+            and drives file, folder, drag-and-drop, preview, rail, stats, and reset
+            flows without changing production code. Known security gaps stay visible
+            as watchlist scenarios until they are fixed.
+          </p>
+        </div>
+        <div class="harness-actions">
+          <button id="run-all" type="button">Run All</button>
+          <button id="reset-app" type="button" class="ghost">Reset App Shell</button>
+        </div>
+      </div>
+
+      <section class="harness-summary" aria-live="polite">
+        <div>
+          <strong id="summary-title">Ready</strong>
+          <p id="summary-text">Open this page in a browser and run the scripted scenarios.</p>
+        </div>
+        <span id="summary-pill" class="summary-pill">Idle</span>
+      </section>
+
+      <ol id="scenario-list" class="scenario-list"></ol>
+    </header>
+
+    <div class="app-shell">
+      <input
+        id="file-input"
+        type="file"
+        accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain"
+        hidden
+      />
+      <input
+        id="folder-input"
+        type="file"
+        accept=".md,.markdown,.mdown,.mkd,.txt,text/markdown,text/plain"
+        webkitdirectory
+        multiple
+        hidden
+      />
+
+      <aside class="rail" aria-label="Document navigation">
+        <div class="rail-header">
+          <p class="eyebrow">Reading Session</p>
+          <h2>Navigator</h2>
+          <p class="rail-copy">
+            Recent files stay here. Same-folder browsing appears when the browser
+            exposes folder access.
+          </p>
+        </div>
+
+        <div class="rail-actions">
+          <button type="button" data-action="open-file">Open File</button>
+          <button type="button" class="ghost" data-action="open-folder">Open Folder</button>
+          <button type="button" class="ghost" data-action="reset">Reset</button>
+        </div>
+
+        <section class="rail-section">
+          <div class="rail-section-header">
+            <h3>History</h3>
+            <div class="rail-section-actions">
+              <span id="history-count" class="rail-count">0</span>
+              <button
+                id="history-section-toggle"
+                type="button"
+                class="ghost compact rail-section-toggle"
+                aria-expanded="true"
+                aria-controls="history-section-body"
+              >
+                Collapse
+              </button>
+            </div>
+          </div>
+          <div id="history-section-body" class="rail-section-body">
+            <p id="history-empty" class="rail-empty">
+              Opened files will appear here.
+            </p>
+            <div id="history-list" class="rail-list"></div>
+          </div>
+        </section>
+
+        <section class="rail-section">
+          <div class="rail-section-header">
+            <h3>Same Folder</h3>
+            <div class="rail-section-actions">
+              <span id="directory-label" class="rail-label">Unavailable</span>
+              <button
+                id="directory-section-toggle"
+                type="button"
+                class="ghost compact rail-section-toggle"
+                aria-expanded="true"
+                aria-controls="directory-section-body"
+              >
+                Collapse
+              </button>
+            </div>
+          </div>
+          <div id="directory-section-body" class="rail-section-body">
+            <p id="directory-empty" class="rail-empty">
+              Use Open Folder to browse sibling files. A plain file picker cannot list
+              nearby files by itself.
+            </p>
+            <div id="directory-list" class="rail-list"></div>
+          </div>
+        </section>
+      </aside>
+
+      <main class="main-shell">
+        <div class="shell-toolbar">
+          <button
+            id="rail-toggle"
+            type="button"
+            class="icon-button"
+            aria-label="Toggle navigator"
+            aria-expanded="false"
+          >
+            <span></span>
+            <span></span>
+            <span></span>
+          </button>
+        </div>
+
+        <div class="page-shell">
+          <section class="intro-shell">
+            <header class="topbar">
+              <div>
+                <p class="eyebrow">Local Browser Tool</p>
+                <h1>Markdown Reader</h1>
+                <p class="subhead">
+                  Open a Markdown file, read it in a dark reader view, and keep a
+                  lightweight local session history beside it.
+                </p>
+              </div>
+              <div class="actions">
+                <button type="button" data-action="open-file">Open Markdown File</button>
+                <button type="button" class="ghost" data-action="open-folder">Open Folder</button>
+                <button type="button" class="ghost" data-action="reset">Reset</button>
+              </div>
+            </header>
+
+            <section id="dropzone" class="dropzone" aria-label="Markdown drop area">
+              <div class="dropzone-copy">
+                <p class="drop-title">Drag and drop a Markdown file here</p>
+                <p class="drop-subtitle">
+                  Drop one file for a quick read or use a folder to unlock sibling
+                  browsing in the left rail.
+                </p>
+              </div>
+              <div class="meta">
+                <span id="drop-file-name">sample.md</span>
+                <span id="drop-doc-stats">0 lines</span>
+              </div>
+            </section>
+          </section>
+
+          <section class="viewer">
+            <div class="panel panel-source">
+              <div class="panel-header">
+                <h2>Source</h2>
+              </div>
+              <textarea
+                id="markdown-input"
+                spellcheck="false"
+                aria-label="Markdown source"
+              ></textarea>
+            </div>
+
+            <div class="panel panel-preview">
+              <div class="panel-header panel-header-preview">
+                <div>
+                  <h2>Preview</h2>
+                  <p id="panel-file-name" class="panel-file-name">sample.md</p>
+                </div>
+                <div class="panel-statuses">
+                  <button id="source-toggle" type="button" class="ghost compact">
+                    Hide Source
+                  </button>
+                  <span id="panel-doc-stats" class="status">0 lines</span>
+                  <span id="render-status" class="status">Rendered locally</span>
+                </div>
+              </div>
+              <article id="preview" class="preview" aria-live="polite"></article>
+            </div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="../app.js"></script>
+    <script>
+      window.__appTestHooks = {
+        sampleMarkdown,
+        state,
+        parseMarkdown,
+        renderHistory,
+        renderDirectory,
+        loadMarkdown,
+        resetToSample,
+        setDirectoryFiles,
+        handlePlainFile,
+        handleFolderSelection,
+        openHistoryItem,
+        openDirectoryItem,
+        setSourceVisible,
+        setRailOpen,
+        setSectionExpanded,
+        setLoadedChrome,
+        updateSidebar,
+        render,
+      };
+    </script>
+    <script src="./browser-regression.js"></script>
+  </body>
+</html>
