@@ -65,6 +65,9 @@ const state = {
   nextDirectoryId: 1,
 };
 
+const CONTROL_AND_SPACE_PATTERN = /[\u0000-\u001f\u007f\s]+/g;
+const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/;
+
 function escapeHtml(value) {
   return value
     .replaceAll("&", "&amp;")
@@ -84,6 +87,61 @@ function renderStyledText(text) {
   return html;
 }
 
+function normalizeUrlForPolicy(value) {
+  return String(value || "")
+    .replace(CONTROL_AND_SPACE_PATTERN, "")
+    .toLowerCase();
+}
+
+function isAllowedPreviewUrl(value) {
+  const normalized = normalizeUrlForPolicy(value);
+
+  if (!normalized || normalized.startsWith("//")) {
+    return false;
+  }
+
+  if (
+    normalized.startsWith("#") ||
+    normalized.startsWith("?") ||
+    normalized.startsWith("./") ||
+    normalized.startsWith("../")
+  ) {
+    return true;
+  }
+
+  if (normalized.startsWith("/")) {
+    return true;
+  }
+
+  if (!URL_SCHEME_PATTERN.test(normalized)) {
+    return true;
+  }
+
+  // `file:` is intentionally blocked. Opened Markdown is treated as untrusted input,
+  // so the preview never gets to trigger local-file loads or navigations on the user's behalf.
+  return normalized.startsWith("http:") || normalized.startsWith("https:");
+}
+
+function renderSafeLink(label, href, title) {
+  if (!isAllowedPreviewUrl(href)) {
+    return renderStyledText(label);
+  }
+
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${
+    title ? ` title="${escapeHtml(title)}"` : ""
+  }>${renderStyledText(label)}</a>`;
+}
+
+function renderSafeImage(alt, src, title) {
+  if (!isAllowedPreviewUrl(src)) {
+    return alt ? escapeHtml(alt) : "";
+  }
+
+  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
+    title ? ` title="${escapeHtml(title)}"` : ""
+  } />`;
+}
+
 function renderInlineText(text) {
   const inlinePattern =
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
@@ -96,14 +154,10 @@ function renderInlineText(text) {
 
     if (match[1] !== undefined) {
       const [, alt, src, title] = match;
-      html += `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
-        title ? ` title="${escapeHtml(title)}"` : ""
-      } />`;
+      html += renderSafeImage(alt, src, title);
     } else {
       const [, , , , label, href, title] = match;
-      html += `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${
-        title ? ` title="${escapeHtml(title)}"` : ""
-      }>${renderStyledText(label)}</a>`;
+      html += renderSafeLink(label, href, title);
     }
 
     lastIndex = inlinePattern.lastIndex;
@@ -412,24 +466,72 @@ function addHistoryEntry(entry) {
   return historyEntry.id;
 }
 
+function canCreateSidebarNodes(container) {
+  return typeof document.createElement === "function" && typeof container.appendChild === "function";
+}
+
+function clearSidebarContainer(container) {
+  if (typeof container.replaceChildren === "function") {
+    container.replaceChildren();
+    return;
+  }
+
+  container.textContent = "";
+}
+
+function createRailItemButton({ idAttribute, idValue, title, path, active = false }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = active ? "rail-item active" : "rail-item";
+  button.setAttribute(idAttribute, idValue);
+
+  const titleNode = document.createElement("span");
+  titleNode.className = "rail-item-title";
+  titleNode.textContent = title;
+
+  const pathNode = document.createElement("span");
+  pathNode.className = "rail-item-path";
+  pathNode.textContent = path;
+
+  button.appendChild(titleNode);
+  button.appendChild(pathNode);
+  return button;
+}
+
+function serializeRailItemButton({ idAttribute, idValue, title, path, active = false }) {
+  return `<button type="button" class="rail-item${active ? " active" : ""}" ${idAttribute}="${escapeHtml(
+    idValue
+  )}"><span class="rail-item-title">${escapeHtml(title)}</span><span class="rail-item-path">${escapeHtml(
+    path
+  )}</span></button>`;
+}
+
+function renderSidebarItems(container, items) {
+  if (canCreateSidebarNodes(container)) {
+    clearSidebarContainer(container);
+    items.forEach((item) => {
+      container.appendChild(createRailItemButton(item));
+    });
+    return;
+  }
+
+  container.innerHTML = items.map((item) => serializeRailItemButton(item)).join("");
+}
+
 function renderHistory() {
   historyCount.textContent = String(state.history.length);
   historyEmpty.hidden = state.history.length > 0;
 
-  historyList.innerHTML = state.history
-    .map(
-      (item) => `
-        <button
-          type="button"
-          class="rail-item${item.id === state.currentDocument.historyId ? " active" : ""}"
-          data-history-id="${item.id}"
-        >
-          <span class="rail-item-title">${escapeHtml(item.name)}</span>
-          <span class="rail-item-path">${escapeHtml(item.path || "Opened from single file")}</span>
-        </button>
-      `
-    )
-    .join("");
+  renderSidebarItems(
+    historyList,
+    state.history.map((item) => ({
+      idAttribute: "data-history-id",
+      idValue: item.id,
+      title: item.name,
+      path: item.path || "Opened from single file",
+      active: item.id === state.currentDocument.historyId,
+    }))
+  );
 }
 
 function renderDirectory() {
@@ -450,28 +552,27 @@ function renderDirectory() {
     directoryEmpty.hidden = false;
     directoryEmpty.textContent =
       "Use Open Folder to browse sibling files. A plain file picker cannot list nearby files by itself.";
-    directoryList.innerHTML = "";
+    renderSidebarItems(directoryList, []);
     return;
   }
 
   if (!siblings.length) {
     directoryEmpty.hidden = false;
     directoryEmpty.textContent = "No other Markdown files were found in this folder.";
-    directoryList.innerHTML = "";
+    renderSidebarItems(directoryList, []);
     return;
   }
 
   directoryEmpty.hidden = true;
-  directoryList.innerHTML = siblings
-    .map(
-      (item) => `
-        <button type="button" class="rail-item" data-directory-id="${item.id}">
-          <span class="rail-item-title">${escapeHtml(item.name)}</span>
-          <span class="rail-item-path">${escapeHtml(item.path)}</span>
-        </button>
-      `
-    )
-    .join("");
+  renderSidebarItems(
+    directoryList,
+    siblings.map((item) => ({
+      idAttribute: "data-directory-id",
+      idValue: item.id,
+      title: item.name,
+      path: item.path,
+    }))
+  );
 }
 
 function updateSidebar() {
