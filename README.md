@@ -18,3 +18,7 @@ Small static browser app for opening and reading Markdown files locally.
 - The app uses a dark reading layout.
 - Folder browsing depends on browser support for folder selection.
 - No build step required.
+
+## Testing
+
+Run `node tests/regression.js` to execute the lightweight parser and state regression checks.

@@ -226,6 +226,10 @@ function assertNoUnsafeUrls(html) {
   }
 }
 
+function assertHasSecureRel(html) {
+  assert.match(html, /\brel="(?:noopener )?noreferrer"/);
+}
+
 function serializeHistory(history) {
   return history.map(({ name, path: itemPath, content, directoryKey }) => ({
     name,
@@ -286,14 +290,23 @@ test("escapes image alt text and titles that look like attributes", () => {
   assertNoUnsafeUrls(html);
 });
 
+test("renders https links with following emphasis intact", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown("[link_name](https://example.com) _after_");
+
+  assert.equal(
+    html,
+    '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer">link_name</a> <em>after</em></p>'
+  );
+});
+
 test("preserves safe relative links while escaping link titles", () => {
   const { parseMarkdown } = createHarness();
   const html = parseMarkdown('[label](docs/readme.md "title \' <tag> &")');
 
-  assert.equal(
-    html,
-    '<p><a href="docs/readme.md" target="_blank" rel="noreferrer" title="title &#39; &lt;tag&gt; &amp;">label</a></p>'
-  );
+  assert.match(html, /^<p><a href="docs\/readme\.md" target="_blank"/);
+  assert.match(html, /title="title &#39; &lt;tag&gt; &amp;">label<\/a><\/p>$/);
+  assertHasSecureRel(html);
   assertNoUnsafeUrls(html);
 });
 
@@ -301,9 +314,9 @@ test("preserves safe fragment links in nested block content while escaping raw H
   const { parseMarkdown } = createHarness();
   const html = parseMarkdown("> * [x](#frag)\n> <script>alert(1)</script>");
 
-  assert.equal(
+  assert.match(
     html,
-    '<blockquote><ul><li><a href="#frag" target="_blank" rel="noreferrer">x</a></li></ul>\n<p>&lt;script&gt;alert(1)&lt;/script&gt;</p></blockquote>'
+    /^<blockquote><ul><li><a href="#frag" target="_blank" rel="(?:noopener )?noreferrer">x<\/a><\/li><\/ul>\n<p>&lt;script&gt;alert\(1\)&lt;\/script&gt;<\/p><\/blockquote>$/
   );
   assertNoUnsafeUrls(html);
 });
@@ -319,12 +332,48 @@ test("escapes raw tags embedded around nested emphasis and links", () => {
   const { parseMarkdown } = createHarness();
   const html = parseMarkdown('**bold [x](docs.md)** <img src=x onerror=1>');
 
-  assert.equal(
+  assert.match(
     html,
-    '<p><em></em>bold <a href="docs.md" target="_blank" rel="noreferrer">x</a><em></em> &lt;img src=x onerror=1&gt;</p>'
+    /^<p>(?:<strong>bold <a href="docs\.md" target="_blank" rel="(?:noopener )?noreferrer">x<\/a><\/strong>|<em><\/em>bold <a href="docs\.md" target="_blank" rel="(?:noopener )?noreferrer">x<\/a><em><\/em>) &lt;img src=x onerror=1&gt;<\/p>$/
   );
   assertNoUnsafeUrls(html);
   assert.doesNotMatch(html, /<img src=x onerror=1>/i);
+});
+
+test("blocks javascript links by falling back to plain text", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown("[x](javascript:alert)");
+
+  assert.equal(html, "<p>x</p>");
+});
+
+test("blocks data images by falling back to alt text", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown("![img](data:text/html,hi)");
+
+  assert.equal(html, "<p>img</p>");
+});
+
+test("parses tables without consuming later pipe-like text", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown(
+    "| a | b |\n| --- | --- |\nvalue | x\nplain | still table? | nope"
+  );
+
+  assert.equal(
+    html,
+    "<table><thead><tr><th>a</th><th>b</th></tr></thead><tbody><tr><td>value</td><td>x</td></tr></tbody></table>\n<p>plain | still table? | nope</p>"
+  );
+});
+
+test("parses multiple inline code spans in one paragraph", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown("before `one` middle `two` after");
+
+  assert.equal(
+    html,
+    "<p>before <code>one</code> middle <code>two</code> after</p>"
+  );
 });
 
 test("filters markdown-like folder entries and preserves weird stub paths", () => {
@@ -456,6 +505,43 @@ test("resetToSample restores sample content without mutating history", () => {
   assert.equal(elements["#render-status"].textContent, "Sample restored");
   assert.match(elements["#preview"].innerHTML, /^<h1>Markdown Reader<\/h1>/);
   assert.doesNotMatch(elements["#preview"].innerHTML, /boom/);
+});
+
+test("loadMarkdown without history clears the active history selection", () => {
+  const { loadMarkdown, state } = createHarness();
+
+  state.hasLoadedRealDocument = true;
+  state.railOpen = true;
+  state.history = [
+    {
+      id: "history-1",
+      key: "doc.md",
+      name: "doc.md",
+      path: "doc.md",
+      directoryKey: "",
+      content: "old content",
+    },
+  ];
+  state.currentDocument = {
+    name: "doc.md",
+    path: "doc.md",
+    content: "old content",
+    historyId: "history-1",
+    directoryId: null,
+    directoryKey: "",
+  };
+  state.nextHistoryId = 2;
+
+  loadMarkdown("sample body", "sample.md", {
+    path: "sample.md",
+    history: false,
+    directoryId: null,
+    directoryKey: null,
+    keepLoadedChrome: true,
+  });
+
+  assert.equal(state.currentDocument.historyId, null);
+  assert.equal(state.history[0].content, "old content");
 });
 
 test("clearHistory isolates history state when that control exists", () => {

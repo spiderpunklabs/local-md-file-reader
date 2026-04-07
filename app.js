@@ -77,27 +77,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function renderStyledText(text) {
-  let html = escapeHtml(text);
+function sanitizeUrl(url) {
+  const raw = String(url || "").trim();
+  if (!raw) {
+    return null;
+  }
 
-  html = html.replace(/(\*\*|__)(.*?)\1/g, "<strong>$2</strong>");
-  html = html.replace(/(\*|_)(.*?)\1/g, "<em>$2</em>");
-  html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
-
-  return html;
-}
-
-function normalizeUrlForPolicy(value) {
-  return String(value || "")
-    .replace(CONTROL_AND_SPACE_PATTERN, "")
-    .toLowerCase();
-}
-
-function isAllowedPreviewUrl(value) {
-  const normalized = normalizeUrlForPolicy(value);
-
+  const normalized = raw.replace(CONTROL_AND_SPACE_PATTERN, "").toLowerCase();
   if (!normalized || normalized.startsWith("//")) {
-    return false;
+    return null;
   }
 
   if (
@@ -106,85 +94,102 @@ function isAllowedPreviewUrl(value) {
     normalized.startsWith("./") ||
     normalized.startsWith("../")
   ) {
-    return true;
+    return raw;
   }
 
   if (normalized.startsWith("/")) {
-    return true;
+    return raw;
   }
 
   if (!URL_SCHEME_PATTERN.test(normalized)) {
-    return true;
+    return raw;
   }
 
   // `file:` is intentionally blocked. Opened Markdown is treated as untrusted input,
   // so the preview never gets to trigger local-file loads or navigations on the user's behalf.
-  return normalized.startsWith("http:") || normalized.startsWith("https:");
-}
-
-function renderSafeLink(label, href, title) {
-  if (!isAllowedPreviewUrl(href)) {
-    return renderStyledText(label);
+  if (normalized.startsWith("http:") || normalized.startsWith("https:")) {
+    return raw;
   }
 
-  return `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer"${
-    title ? ` title="${escapeHtml(title)}"` : ""
-  }>${renderStyledText(label)}</a>`;
+  return null;
 }
 
-function renderSafeImage(alt, src, title) {
-  if (!isAllowedPreviewUrl(src)) {
-    return alt ? escapeHtml(alt) : "";
-  }
+function formatInlineText(text) {
+  const codeTokens = [];
+  const tokenized = text.replace(/`([^`]+)`/g, (_, code) => {
+    const token = `@@CODETOKEN${codeTokens.length}@@`;
+    codeTokens.push(`<code>${escapeHtml(code)}</code>`);
+    return token;
+  });
 
-  return `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
-    title ? ` title="${escapeHtml(title)}"` : ""
-  } />`;
-}
+  let html = escapeHtml(tokenized);
 
-function renderInlineText(text) {
-  const inlinePattern =
-    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)|\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
-  let html = "";
-  let lastIndex = 0;
-  let match;
+  html = html.replace(/(\*\*|__)(.*?)\1/g, "<strong>$2</strong>");
+  html = html.replace(/(\*|_)(.*?)\1/g, "<em>$2</em>");
+  html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
 
-  while ((match = inlinePattern.exec(text)) !== null) {
-    html += renderStyledText(text.slice(lastIndex, match.index));
-
-    if (match[1] !== undefined) {
-      const [, alt, src, title] = match;
-      html += renderSafeImage(alt, src, title);
-    } else {
-      const [, , , , label, href, title] = match;
-      html += renderSafeLink(label, href, title);
-    }
-
-    lastIndex = inlinePattern.lastIndex;
-  }
-
-  html += renderStyledText(text.slice(lastIndex));
-  return html;
+  return html.replace(/@@CODETOKEN(\d+)@@/g, (_, index) => codeTokens[Number(index)]);
 }
 
 function parseInline(text) {
-  const codePattern = /`([^`]+)`/g;
-  let html = "";
-  let lastIndex = 0;
-  let match;
+  const htmlTokens = [];
+  const storeHtmlToken = (html) => {
+    const token = `@@HTMLTOKEN${htmlTokens.length}@@`;
+    htmlTokens.push(html);
+    return token;
+  };
 
-  while ((match = codePattern.exec(text)) !== null) {
-    html += renderInlineText(text.slice(lastIndex, match.index));
-    html += `<code>${escapeHtml(match[1])}</code>`;
-    lastIndex = codePattern.lastIndex;
-  }
+  let tokenized = text.replace(
+    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
+    (_, alt, src, title) => {
+      const safeSrc = sanitizeUrl(src);
+      if (!safeSrc) {
+        return storeHtmlToken(escapeHtml(alt || ""));
+      }
 
-  html += renderInlineText(text.slice(lastIndex));
-  return html;
+      return storeHtmlToken(
+        `<img src="${escapeHtml(safeSrc)}" alt="${escapeHtml(alt)}"${
+          title ? ` title="${escapeHtml(title)}"` : ""
+        } />`
+      );
+    }
+  );
+
+  tokenized = tokenized.replace(
+    /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
+    (_, label, href, title) => {
+      const safeHref = sanitizeUrl(href);
+      const labelHtml = formatInlineText(label);
+
+      if (!safeHref) {
+        return storeHtmlToken(labelHtml);
+      }
+
+      return storeHtmlToken(
+        `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer"${
+          title ? ` title="${escapeHtml(title)}"` : ""
+        }>${labelHtml}</a>`
+      );
+    }
+  );
+
+  return formatInlineText(tokenized).replace(
+    /@@HTMLTOKEN(\d+)@@/g,
+    (_, index) => htmlTokens[Number(index)]
+  );
 }
 
 function isTableSeparator(line) {
   return /^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$/.test(line);
+}
+
+function parseTableRow(line) {
+  const trimmed = line.trim();
+  return trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map((cell) => cell.trim());
 }
 
 function parseTable(lines, startIndex) {
@@ -195,18 +200,17 @@ function parseTable(lines, startIndex) {
     return null;
   }
 
+  const headerCells = parseTableRow(headerLine);
+  const columnCount = headerCells.length;
   const rows = [];
   let index = startIndex;
 
   while (index < lines.length && lines[index].includes("|")) {
-    rows.push(
-      lines[index]
-        .trim()
-        .replace(/^\|/, "")
-        .replace(/\|$/, "")
-        .split("|")
-        .map((cell) => cell.trim())
-    );
+    const row = parseTableRow(lines[index]);
+    if (row.length !== columnCount) {
+      break;
+    }
+    rows.push(row);
     index += 1;
   }
 
@@ -214,7 +218,6 @@ function parseTable(lines, startIndex) {
     return null;
   }
 
-  const headerCells = rows[0];
   const bodyRows = rows.slice(2);
   const headerHtml = headerCells.map((cell) => `<th>${parseInline(cell)}</th>`).join("");
   const bodyHtml = bodyRows
@@ -448,7 +451,6 @@ function addHistoryEntry(entry) {
     existing.directoryKey = entry.directoryKey;
     existing.content = entry.content;
     state.history.unshift(existing);
-    state.currentDocument.historyId = existing.id;
     return existing.id;
   }
 
@@ -462,7 +464,6 @@ function addHistoryEntry(entry) {
   };
 
   state.history.unshift(historyEntry);
-  state.currentDocument.historyId = historyEntry.id;
   return historyEntry.id;
 }
 
@@ -588,6 +589,7 @@ function loadMarkdown(content, name, options = {}) {
     directoryKey = null,
     keepLoadedChrome = false,
   } = options;
+  const historyId = history ? addHistoryEntry({ name, path, directoryKey, content }) : null;
 
   markdownInput.value = content;
   updateDocumentMeta(name);
@@ -597,13 +599,12 @@ function loadMarkdown(content, name, options = {}) {
     name,
     path,
     content,
-    historyId: state.currentDocument.historyId,
+    historyId,
     directoryId,
     directoryKey,
   };
 
   if (history) {
-    addHistoryEntry({ name, path, directoryKey, content });
     state.hasLoadedRealDocument = true;
     state.railOpen = true;
   } else if (keepLoadedChrome) {
@@ -699,7 +700,7 @@ async function handleFolderSelection(files) {
     directoryLabel.textContent = "Unavailable";
     directoryEmpty.hidden = false;
     directoryEmpty.textContent = "No Markdown files were found in the selected folder.";
-    directoryList.innerHTML = "";
+    renderSidebarItems(directoryList, []);
     return;
   }
 
