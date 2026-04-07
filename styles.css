@@ -199,6 +199,14 @@ button.compact {
   font-size: 0.88rem;
 }
 
+#render-status[data-state="loading"] {
+  color: #c7f8ff;
+}
+
+#render-status[data-state="error"] {
+  color: #ffb0b0;
+}
+
 .rail-empty {
   margin: 12px 0 0;
   color: var(--ink-muted);

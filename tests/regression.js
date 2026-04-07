@@ -8,15 +8,21 @@ const appSource = fs.readFileSync(appPath, "utf8");
 const appScript = new vm.Script(
   `${appSource}
 ;globalThis.__appTestExports = {
+  APP_VERSION,
+  INLINE_TOKEN_BASE,
   sampleMarkdown,
   state,
   parseMarkdown,
+  applyRenderedHtml,
+  hasInternalRenderTokens,
   renderHistory,
   renderDirectory,
   loadMarkdown,
+  reloadSource: typeof reloadSource === "function" ? reloadSource : undefined,
   resetToSample,
   setDirectoryFiles,
   clearHistory: typeof clearHistory === "function" ? clearHistory : undefined,
+  runtimeVersion: globalThis.__MARKDOWN_READER_VERSION,
 };
 `,
   { filename: appPath }
@@ -100,6 +106,7 @@ function createHarness() {
   const baseSelectors = [
     "#file-input",
     "#folder-input",
+    "#source-reload",
     "#source-toggle",
     "#rail-toggle",
     "#dropzone",
@@ -111,6 +118,7 @@ function createHarness() {
     "#panel-file-name",
     "#panel-doc-stats",
     "#render-status",
+    "#app-version",
     ".panel-source",
     "#history-list",
     "#history-empty",
@@ -189,6 +197,7 @@ function createHarness() {
 
   return {
     ...context.__appTestExports,
+    documentBody: document.body,
     elements: Object.fromEntries(elements),
   };
 }
@@ -228,6 +237,12 @@ function assertNoUnsafeUrls(html) {
 
 function assertHasSecureRel(html) {
   assert.match(html, /\brel="(?:noopener )?noreferrer"/);
+}
+
+function assertNoInternalRenderArtifacts(html) {
+  assert.doesNotMatch(html, /%%CODE(?:_)?\d+%%/);
+  assert.doesNotMatch(html, /@@(?:CODETOKEN|HTMLTOKEN)\d+@@/);
+  assert.doesNotMatch(html, /[\u{F0000}-\u{10FFFD}]/u);
 }
 
 function serializeHistory(history) {
@@ -374,6 +389,31 @@ test("parses multiple inline code spans in one paragraph", () => {
     html,
     "<p>before <code>one</code> middle <code>two</code> after</p>"
   );
+  assertNoInternalRenderArtifacts(html);
+});
+
+test("renders the reported pool override sentence with inline code spans", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown(
+    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`."
+  );
+
+  assert.equal(
+    html,
+    "<p>Add one pool-level <code>overridePolicy</code> on top of one base <code>instanceConfigurationId</code>.</p>"
+  );
+  assertNoInternalRenderArtifacts(html);
+});
+
+test("renders code spans inside link labels without leaking markers", () => {
+  const { parseMarkdown } = createHarness();
+  const html = parseMarkdown("[`overridePolicy`](https://example.com) _after_");
+
+  assert.equal(
+    html,
+    '<p><a href="https://example.com" target="_blank" rel="noopener noreferrer"><code>overridePolicy</code></a> <em>after</em></p>'
+  );
+  assertNoInternalRenderArtifacts(html);
 });
 
 test("filters markdown-like folder entries and preserves weird stub paths", () => {
@@ -569,6 +609,56 @@ test("clearHistory isolates history state when that control exists", () => {
   assert.equal(state.history.length, 0);
   assert.equal(state.currentDocument.historyId, null);
   assert.equal(elements["#render-status"].textContent, "History cleared");
+});
+
+test("reloadSource rerenders from the current textarea content", () => {
+  const { elements, loadMarkdown, reloadSource, state } = createHarness();
+
+  if (typeof reloadSource !== "function") {
+    return;
+  }
+
+  loadMarkdown("# original", "original.md", {
+    path: "docs/original.md",
+    history: true,
+    directoryId: "directory-1",
+    directoryKey: "docs",
+  });
+
+  elements["#markdown-input"].value =
+    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`.";
+  reloadSource();
+
+  assert.equal(
+    elements["#preview"].innerHTML,
+    "<p>Add one pool-level <code>overridePolicy</code> on top of one base <code>instanceConfigurationId</code>.</p>"
+  );
+  assert.equal(elements["#render-status"].textContent, "Source reloaded");
+  assert.equal(elements["#render-status"].dataset.state, "ready");
+  assert.equal(
+    state.history[0].content,
+    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`."
+  );
+});
+
+test("exposes the current app version in runtime and UI state", () => {
+  const { APP_VERSION, documentBody, elements, runtimeVersion } = createHarness();
+
+  assert.equal(runtimeVersion, APP_VERSION);
+  assert.equal(documentBody.dataset.appVersion, APP_VERSION);
+  assert.equal(elements["#app-version"].textContent, `Build ${APP_VERSION}`);
+});
+
+test("render fallback blocks unresolved internal tokens from reaching preview", () => {
+  const { INLINE_TOKEN_BASE, applyRenderedHtml, elements } = createHarness();
+  const brokenToken = String.fromCodePoint(INLINE_TOKEN_BASE);
+
+  const didRender = applyRenderedHtml("source <&>", `<p>broken ${brokenToken}</p>`);
+
+  assert.equal(didRender, false);
+  assert.equal(elements["#render-status"].textContent, "Render issue detected");
+  assert.equal(elements["#render-status"].dataset.state, "error");
+  assert.equal(elements["#preview"].innerHTML, "<pre>source &lt;&amp;&gt;</pre>");
 });
 
 function assertDangerousUrlsAreBlocked(markdown) {

@@ -20,6 +20,7 @@ function hello(name) {
 
 const fileInput = document.querySelector("#file-input");
 const folderInput = document.querySelector("#folder-input");
+const sourceReload = document.querySelector("#source-reload");
 const sourceToggle = document.querySelector("#source-toggle");
 const railToggle = document.querySelector("#rail-toggle");
 const dropzone = document.querySelector("#dropzone");
@@ -31,6 +32,7 @@ const dropDocStats = document.querySelector("#drop-doc-stats");
 const panelFileName = document.querySelector("#panel-file-name");
 const panelDocStats = document.querySelector("#panel-doc-stats");
 const renderStatus = document.querySelector("#render-status");
+const appVersion = document.querySelector("#app-version");
 const sourcePanel = document.querySelector(".panel-source");
 const historyList = document.querySelector("#history-list");
 const historyEmpty = document.querySelector("#history-empty");
@@ -66,8 +68,20 @@ const state = {
   nextDirectoryId: 1,
 };
 
+const APP_VERSION = "20260407-reload-source-return";
 const CONTROL_AND_SPACE_PATTERN = /[\u0000-\u001f\u007f\s]+/g;
 const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/;
+const INLINE_TOKEN_BASE = 0xf0000;
+const INLINE_TOKEN_LIMIT = 0x10fffd;
+const INLINE_CODE_PATTERN = /`([^`]+)`/g;
+const INLINE_IMAGE_PATTERN =
+  /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
+const INLINE_LINK_PATTERN =
+  /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g;
+const INTERNAL_RENDER_TOKEN_PATTERN = /[\u{F0000}-\u{10FFFD}]/u;
+const runtimeRoot = typeof window !== "undefined" ? window : globalThis;
+
+runtimeRoot.__MARKDOWN_READER_VERSION = APP_VERSION;
 
 function escapeHtml(value) {
   return value
@@ -115,69 +129,109 @@ function sanitizeUrl(url) {
   return null;
 }
 
-function formatInlineText(text) {
-  const codeTokens = [];
-  const tokenized = text.replace(/`([^`]+)`/g, (_, code) => {
-    const token = `@@CODETOKEN${codeTokens.length}@@`;
-    codeTokens.push(`<code>${escapeHtml(code)}</code>`);
-    return token;
-  });
+function createInlineTokenStore() {
+  const tokens = [];
 
-  let html = escapeHtml(tokenized);
+  return {
+    write(html) {
+      const codePoint = INLINE_TOKEN_BASE + tokens.length;
+      if (codePoint > INLINE_TOKEN_LIMIT) {
+        throw new Error("Too many inline tokens to render safely.");
+      }
+
+      const token = String.fromCodePoint(codePoint);
+      tokens.push({ html, token });
+      return token;
+    },
+    restore(value) {
+      return tokens.reduceRight(
+        (output, { html, token }) => output.split(token).join(html),
+        value
+      );
+    },
+  };
+}
+
+function applyInlineTextStyles(text) {
+  let html = escapeHtml(text);
 
   html = html.replace(/(\*\*|__)(.*?)\1/g, "<strong>$2</strong>");
   html = html.replace(/(\*|_)(.*?)\1/g, "<em>$2</em>");
   html = html.replace(/~~(.*?)~~/g, "<del>$1</del>");
 
-  return html.replace(/@@CODETOKEN(\d+)@@/g, (_, index) => codeTokens[Number(index)]);
+  return html;
+}
+
+function renderInlineText(text) {
+  const tokenStore = createInlineTokenStore();
+  const tokenized = text.replace(INLINE_CODE_PATTERN, (_, code) =>
+    tokenStore.write(`<code>${escapeHtml(code)}</code>`)
+  );
+
+  return tokenStore.restore(applyInlineTextStyles(tokenized));
+}
+
+function renderInlineImage(alt, src, title) {
+  const safeSrc = sanitizeUrl(src);
+  if (!safeSrc) {
+    return alt ? escapeHtml(alt) : "";
+  }
+
+  return `<img src="${escapeHtml(safeSrc)}" alt="${escapeHtml(alt)}"${
+    title ? ` title="${escapeHtml(title)}"` : ""
+  } />`;
+}
+
+function renderInlineLink(label, href, title) {
+  const safeHref = sanitizeUrl(href);
+  const labelHtml = renderInlineText(label);
+
+  if (!safeHref) {
+    return labelHtml;
+  }
+
+  return `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer"${
+    title ? ` title="${escapeHtml(title)}"` : ""
+  }>${labelHtml}</a>`;
 }
 
 function parseInline(text) {
-  const htmlTokens = [];
-  const storeHtmlToken = (html) => {
-    const token = `@@HTMLTOKEN${htmlTokens.length}@@`;
-    htmlTokens.push(html);
-    return token;
-  };
+  const tokenStore = createInlineTokenStore();
 
-  let tokenized = text.replace(
-    /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
-    (_, alt, src, title) => {
-      const safeSrc = sanitizeUrl(src);
-      if (!safeSrc) {
-        return storeHtmlToken(escapeHtml(alt || ""));
-      }
-
-      return storeHtmlToken(
-        `<img src="${escapeHtml(safeSrc)}" alt="${escapeHtml(alt)}"${
-          title ? ` title="${escapeHtml(title)}"` : ""
-        } />`
-      );
-    }
+  let tokenized = text.replace(INLINE_CODE_PATTERN, (_, code) =>
+    tokenStore.write(`<code>${escapeHtml(code)}</code>`)
   );
 
   tokenized = tokenized.replace(
-    /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]+)")?\)/g,
-    (_, label, href, title) => {
-      const safeHref = sanitizeUrl(href);
-      const labelHtml = formatInlineText(label);
-
-      if (!safeHref) {
-        return storeHtmlToken(labelHtml);
-      }
-
-      return storeHtmlToken(
-        `<a href="${escapeHtml(safeHref)}" target="_blank" rel="noopener noreferrer"${
-          title ? ` title="${escapeHtml(title)}"` : ""
-        }>${labelHtml}</a>`
-      );
-    }
+    INLINE_IMAGE_PATTERN,
+    (_, alt, src, title) => tokenStore.write(renderInlineImage(alt, src, title))
   );
 
-  return formatInlineText(tokenized).replace(
-    /@@HTMLTOKEN(\d+)@@/g,
-    (_, index) => htmlTokens[Number(index)]
+  tokenized = tokenized.replace(
+    INLINE_LINK_PATTERN,
+    (_, label, href, title) => tokenStore.write(renderInlineLink(label, href, title))
   );
+
+  return tokenStore.restore(applyInlineTextStyles(tokenized));
+}
+
+function hasInternalRenderTokens(html) {
+  return INTERNAL_RENDER_TOKEN_PATTERN.test(html);
+}
+
+function setRenderStatus(message, state = "ready") {
+  renderStatus.textContent = message;
+  renderStatus.dataset.state = state;
+}
+
+function setAppVersion() {
+  if (appVersion) {
+    appVersion.textContent = `Build ${APP_VERSION}`;
+  }
+
+  if (document.body && document.body.dataset) {
+    document.body.dataset.appVersion = APP_VERSION;
+  }
 }
 
 function isTableSeparator(line) {
@@ -368,10 +422,25 @@ function updateStats(content) {
   panelDocStats.textContent = stats;
 }
 
-function render(markdown) {
-  preview.innerHTML = parseMarkdown(markdown);
+function applyRenderedHtml(markdown, html) {
   updateStats(markdown);
-  renderStatus.textContent = "Rendered locally";
+
+  if (hasInternalRenderTokens(html)) {
+    preview.innerHTML = `<pre>${escapeHtml(markdown)}</pre>`;
+    setRenderStatus("Render issue detected", "error");
+    console.error("Unresolved internal render tokens reached the preview.", {
+      appVersion: APP_VERSION,
+    });
+    return false;
+  }
+
+  preview.innerHTML = html;
+  setRenderStatus("Rendered locally", "ready");
+  return true;
+}
+
+function render(markdown) {
+  applyRenderedHtml(markdown, parseMarkdown(markdown));
 }
 
 function setLoadedChrome() {
@@ -545,7 +614,7 @@ function clearHistory() {
   state.history = [];
   state.nextHistoryId = 1;
   state.currentDocument.historyId = null;
-  renderStatus.textContent = "History cleared";
+  setRenderStatus("History cleared", "ready");
   updateSidebar();
 }
 
@@ -651,7 +720,7 @@ async function openDirectoryItem(directoryId) {
     return;
   }
 
-  renderStatus.textContent = "Loading file";
+  setRenderStatus("Loading file", "loading");
 
   try {
     const content = await readFileText(item.file);
@@ -662,7 +731,7 @@ async function openDirectoryItem(directoryId) {
       directoryKey: item.directoryKey,
     });
   } catch {
-    renderStatus.textContent = "Could not read file";
+    setRenderStatus("Could not read file", "error");
   }
 }
 
@@ -671,7 +740,7 @@ async function handlePlainFile(file) {
     return;
   }
 
-  renderStatus.textContent = "Loading file";
+  setRenderStatus("Loading file", "loading");
 
   try {
     const content = await readFileText(file);
@@ -687,7 +756,7 @@ async function handlePlainFile(file) {
       directoryKey: matchingDirectory ? matchingDirectory.directoryKey : null,
     });
   } catch {
-    renderStatus.textContent = "Could not read file";
+    setRenderStatus("Could not read file", "error");
   }
 }
 
@@ -737,7 +806,20 @@ function resetToSample() {
     directoryKey: null,
     keepLoadedChrome: state.hasLoadedRealDocument,
   });
-  renderStatus.textContent = "Sample restored";
+  setRenderStatus("Sample restored", "ready");
+}
+
+function reloadSource() {
+  const content = markdownInput.value;
+  state.currentDocument.content = content;
+  render(content);
+
+  const activeHistory = state.history.find((item) => item.id === state.currentDocument.historyId);
+  if (activeHistory) {
+    activeHistory.content = content;
+  }
+
+  setRenderStatus("Source reloaded", "ready");
 }
 
 document.querySelectorAll("[data-action='open-file']").forEach((button) => {
@@ -773,6 +855,10 @@ markdownInput.addEventListener("input", (event) => {
   if (activeHistory) {
     activeHistory.content = content;
   }
+});
+
+sourceReload.addEventListener("click", () => {
+  reloadSource();
 });
 
 sourceToggle.addEventListener("click", () => {
@@ -844,6 +930,7 @@ dropzone.addEventListener("drop", async (event) => {
   await handlePlainFile(files[0]);
 });
 
+setAppVersion();
 loadMarkdown(sampleMarkdown, "sample.md", {
   path: "sample.md",
   history: false,
