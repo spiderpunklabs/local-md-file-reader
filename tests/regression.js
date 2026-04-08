@@ -173,11 +173,13 @@ function createHarness() {
       }
 
       this.result =
-        file && typeof file.text === "string"
-          ? file.text
-          : file && typeof file.content === "string"
-            ? file.content
-            : "";
+        file && typeof file.__content === "string"
+          ? file.__content
+          : file && typeof file.text === "string"
+            ? file.text
+            : file && typeof file.content === "string"
+              ? file.content
+              : "";
 
       if (typeof this.onload === "function") {
         this.onload();
@@ -611,34 +613,99 @@ test("clearHistory isolates history state when that control exists", () => {
   assert.equal(elements["#render-status"].textContent, "History cleared");
 });
 
-test("reloadSource rerenders from the current textarea content", () => {
+test("reloadSource stays disabled until a real file is loaded", () => {
+  const { elements, loadMarkdown, resetToSample } = createHarness();
+
+  assert.equal(elements["#source-reload"].disabled, true);
+
+  loadMarkdown("# loaded", "loaded.md", {
+    path: "docs/loaded.md",
+    history: true,
+    file: { content: "# loaded" },
+    directoryId: "directory-1",
+    directoryKey: "docs",
+  });
+
+  assert.equal(elements["#source-reload"].disabled, false);
+
+  resetToSample();
+
+  assert.equal(elements["#source-reload"].disabled, true);
+});
+
+test("reloadSource restores the stored file content instead of reusing the textarea draft", async () => {
   const { elements, loadMarkdown, reloadSource, state } = createHarness();
 
   if (typeof reloadSource !== "function") {
     return;
   }
 
+  const file = {
+    content:
+      "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`.",
+  };
+
   loadMarkdown("# original", "original.md", {
     path: "docs/original.md",
     history: true,
+    file,
     directoryId: "directory-1",
     directoryKey: "docs",
   });
 
-  elements["#markdown-input"].value =
-    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`.";
-  reloadSource();
+  elements["#markdown-input"].value = "# local draft";
+  state.currentDocument.content = "# local draft";
+  await reloadSource();
 
   assert.equal(
     elements["#preview"].innerHTML,
     "<p>Add one pool-level <code>overridePolicy</code> on top of one base <code>instanceConfigurationId</code>.</p>"
   );
+  assert.equal(
+    elements["#markdown-input"].value,
+    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`."
+  );
   assert.equal(elements["#render-status"].textContent, "Source reloaded");
   assert.equal(elements["#render-status"].dataset.state, "ready");
+  assert.equal(
+    state.currentDocument.content,
+    "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`."
+  );
   assert.equal(
     state.history[0].content,
     "Add one pool-level `overridePolicy` on top of one base `instanceConfigurationId`."
   );
+});
+
+test("reloadSource preserves the current view when the stored file cannot be read", async () => {
+  const { elements, loadMarkdown, reloadSource, state } = createHarness();
+
+  if (typeof reloadSource !== "function") {
+    return;
+  }
+
+  const file = {
+    content: "# original",
+    shouldFail: false,
+  };
+
+  loadMarkdown("# original", "original.md", {
+    path: "docs/original.md",
+    history: true,
+    file,
+    directoryId: "directory-1",
+    directoryKey: "docs",
+  });
+
+  file.shouldFail = true;
+  await reloadSource();
+
+  assert.equal(elements["#markdown-input"].value, "# original");
+  assert.equal(elements["#preview"].innerHTML, "<h1>original</h1>");
+  assert.equal(elements["#render-status"].textContent, "Could not read file");
+  assert.equal(elements["#render-status"].dataset.state, "error");
+  assert.equal(state.currentDocument.content, "# original");
+  assert.equal(state.history[0].content, "# original");
 });
 
 test("exposes the current app version in runtime and UI state", () => {
@@ -703,7 +770,7 @@ function formatError(error) {
     .join("\n");
 }
 
-function runSuite() {
+async function runSuite() {
   let passed = 0;
   let failed = 0;
   let openGaps = 0;
@@ -711,7 +778,7 @@ function runSuite() {
 
   for (const { name, run } of tests) {
     try {
-      run();
+      await run();
       passed += 1;
       console.log(`PASS ${name}`);
     } catch (error) {
@@ -723,7 +790,7 @@ function runSuite() {
 
   for (const { name, run } of knownGaps) {
     try {
-      run();
+      await run();
       closedGaps += 1;
       console.log(`GAP CLOSED ${name}`);
     } catch (error) {
@@ -741,4 +808,8 @@ function runSuite() {
   }
 }
 
-runSuite();
+runSuite().catch((error) => {
+  process.exitCode = 1;
+  console.error("FAIL regression suite bootstrap");
+  console.error(formatError(error));
+});

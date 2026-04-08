@@ -19,6 +19,7 @@
     preview: document.querySelector("#preview"),
     viewer: document.querySelector(".viewer"),
     sourcePanel: document.querySelector(".panel-source"),
+    sourceReload: document.querySelector("#source-reload"),
     railToggle: document.querySelector("#rail-toggle"),
     sourceToggle: document.querySelector("#source-toggle"),
     historySectionToggle: document.querySelector("#history-section-toggle"),
@@ -291,6 +292,7 @@
       name: "sample.md",
       path: "",
       content: app.sampleMarkdown,
+      file: null,
       historyId: null,
       directoryId: null,
       directoryKey: "",
@@ -555,6 +557,49 @@
           ui.directoryList.textContent,
           /notes\.txt/,
           "Folder-like drops should retain markdown-like TXT siblings."
+        );
+      },
+    },
+    {
+      id: "reload-source",
+      name: "Reload Source restores the file-backed document",
+      kind: "test",
+      async run() {
+        const file = createHarnessFile("reload.md", "# Original");
+
+        assert(ui.sourceReload.disabled, "Reload should stay disabled before any real file is loaded.");
+
+        await chooseFile(file);
+
+        assert(!ui.sourceReload.disabled, "Reload should enable after loading a real file.");
+
+        ui.markdownInput.value = "# Draft";
+        ui.markdownInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+        file.__content = "# Reloaded\nfrom disk";
+        ui.sourceReload.click();
+
+        await waitFor(
+          () =>
+            ui.markdownInput.value === "# Reloaded\nfrom disk" &&
+            ui.renderStatus.textContent === "Source reloaded",
+          "Timed out waiting for Reload Source to restore the file-backed content."
+        );
+
+        equal(
+          ui.markdownInput.value,
+          "# Reloaded\nfrom disk",
+          "Reload should overwrite local draft edits with the stored file content."
+        );
+        match(
+          ui.preview.innerHTML,
+          /^<h1>Reloaded<\/h1>\s*<p>from disk<\/p>$/,
+          "Preview should render the reloaded file content."
+        );
+        equal(
+          app.state.history[0].content,
+          "# Reloaded\nfrom disk",
+          "History should track the restored file-backed content after reload."
         );
       },
     },

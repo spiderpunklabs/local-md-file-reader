@@ -60,6 +60,7 @@ const state = {
     name: "sample.md",
     path: "",
     content: sampleMarkdown,
+    file: null,
     historyId: null,
     directoryId: null,
     directoryKey: "",
@@ -68,7 +69,7 @@ const state = {
   nextDirectoryId: 1,
 };
 
-const APP_VERSION = "20260407-reload-source-return";
+const APP_VERSION = "20260408-reload-source-file";
 const CONTROL_AND_SPACE_PATTERN = /[\u0000-\u001f\u007f\s]+/g;
 const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:/;
 const INLINE_TOKEN_BASE = 0xf0000;
@@ -449,6 +450,14 @@ function setLoadedChrome() {
   railToggle.setAttribute("aria-expanded", String(state.hasLoadedRealDocument && state.railOpen));
 }
 
+function setReloadAvailability() {
+  if (!sourceReload) {
+    return;
+  }
+
+  sourceReload.disabled = !state.currentDocument.file;
+}
+
 function setRailOpen(open) {
   state.railOpen = open;
   railToggle.setAttribute("aria-expanded", String(state.hasLoadedRealDocument && state.railOpen));
@@ -520,6 +529,7 @@ function addHistoryEntry(entry) {
     existing.path = entry.path;
     existing.directoryKey = entry.directoryKey;
     existing.content = entry.content;
+    existing.file = entry.file || existing.file || null;
     state.history.unshift(existing);
     return existing.id;
   }
@@ -531,6 +541,7 @@ function addHistoryEntry(entry) {
     path: entry.path,
     directoryKey: entry.directoryKey,
     content: entry.content,
+    file: entry.file || null,
   };
 
   state.history.unshift(historyEntry);
@@ -668,11 +679,12 @@ function loadMarkdown(content, name, options = {}) {
   const {
     path = name,
     history = false,
+    file = null,
     directoryId = null,
     directoryKey = null,
     keepLoadedChrome = false,
   } = options;
-  const historyId = history ? addHistoryEntry({ name, path, directoryKey, content }) : null;
+  const historyId = history ? addHistoryEntry({ name, path, directoryKey, content, file }) : null;
 
   markdownInput.value = content;
   updateDocumentMeta(name);
@@ -682,6 +694,7 @@ function loadMarkdown(content, name, options = {}) {
     name,
     path,
     content,
+    file,
     historyId,
     directoryId,
     directoryKey,
@@ -695,6 +708,7 @@ function loadMarkdown(content, name, options = {}) {
   }
 
   setLoadedChrome();
+  setReloadAvailability();
   updateSidebar();
 }
 
@@ -705,10 +719,12 @@ function openHistoryItem(historyId) {
   }
 
   const matchingDirectory = state.directoryFiles.find((entry) => entry.path === item.path);
+  const file = item.file || (matchingDirectory ? matchingDirectory.file : null);
 
   loadMarkdown(item.content, item.name, {
     path: item.path,
     history: true,
+    file,
     directoryId: matchingDirectory ? matchingDirectory.id : null,
     directoryKey: item.directoryKey ?? null,
   });
@@ -727,6 +743,7 @@ async function openDirectoryItem(directoryId) {
     loadMarkdown(content, item.name, {
       path: item.path,
       history: true,
+      file: item.file,
       directoryId: item.id,
       directoryKey: item.directoryKey,
     });
@@ -752,6 +769,7 @@ async function handlePlainFile(file) {
     loadMarkdown(content, file.name, {
       path: matchingDirectory ? matchingDirectory.path : file.name,
       history: true,
+      file,
       directoryId: matchingDirectory ? matchingDirectory.id : null,
       directoryKey: matchingDirectory ? matchingDirectory.directoryKey : null,
     });
@@ -802,6 +820,7 @@ function resetToSample() {
   loadMarkdown(sampleMarkdown, "sample.md", {
     path: "sample.md",
     history: false,
+    file: null,
     directoryId: null,
     directoryKey: null,
     keepLoadedChrome: state.hasLoadedRealDocument,
@@ -809,17 +828,32 @@ function resetToSample() {
   setRenderStatus("Sample restored", "ready");
 }
 
-function reloadSource() {
-  const content = markdownInput.value;
-  state.currentDocument.content = content;
-  render(content);
-
-  const activeHistory = state.history.find((item) => item.id === state.currentDocument.historyId);
-  if (activeHistory) {
-    activeHistory.content = content;
+async function reloadSource() {
+  const file = state.currentDocument.file;
+  if (!file) {
+    return false;
   }
 
-  setRenderStatus("Source reloaded", "ready");
+  setRenderStatus("Loading file", "loading");
+
+  try {
+    const content = await readFileText(file);
+    markdownInput.value = content;
+    state.currentDocument.content = content;
+    render(content);
+
+    const activeHistory = state.history.find((item) => item.id === state.currentDocument.historyId);
+    if (activeHistory) {
+      activeHistory.content = content;
+      activeHistory.file = file;
+    }
+
+    setRenderStatus("Source reloaded", "ready");
+    return true;
+  } catch {
+    setRenderStatus("Could not read file", "error");
+    return false;
+  }
 }
 
 document.querySelectorAll("[data-action='open-file']").forEach((button) => {
@@ -857,9 +891,11 @@ markdownInput.addEventListener("input", (event) => {
   }
 });
 
-sourceReload.addEventListener("click", () => {
-  reloadSource();
-});
+if (sourceReload) {
+  sourceReload.addEventListener("click", () => {
+    reloadSource();
+  });
+}
 
 sourceToggle.addEventListener("click", () => {
   setSourceVisible(!state.sourceVisible);
@@ -934,6 +970,7 @@ setAppVersion();
 loadMarkdown(sampleMarkdown, "sample.md", {
   path: "sample.md",
   history: false,
+  file: null,
   directoryId: null,
   directoryKey: null,
 });
